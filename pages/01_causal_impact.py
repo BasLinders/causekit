@@ -27,6 +27,23 @@ with st.expander("Data requirements"):
 
         The column names themselves do not matter — you will map them in the interface.
         At least 28 data points in the pre-period are recommended (4 full weeks for daily data).
+
+        **Covariates**
+
+        A covariate must correlate with the response metric during the pre-period,
+        and must not have been affected by the intervention itself.
+
+        | | Examples |
+        |---|---|
+        | ✅ Good | Organic sessions (if the intervention was paid) |
+        | ✅ Good | A comparable market or region that was not treated |
+        | ✅ Good | A related product category the intervention did not touch |
+        | ✅ Good | A market-wide benchmark or macro indicator |
+        | ❌ Bad | Any metric downstream of the intervention (e.g. revenue if sessions were treated) |
+        | ❌ Bad | Metrics measured on the same exposed users |
+        | ❌ Bad | Series with a different seasonal pattern than the response |
+
+        One or two well-chosen covariates outperform a large set of loosely related ones.
         """
     )
     st.markdown("**SQL template (BigQuery)**")
@@ -42,7 +59,6 @@ ORDER BY date
         """,
         language="sql",
     )
-
 with st.expander("What it does"):
     st.markdown(
         """
