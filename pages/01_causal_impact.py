@@ -44,6 +44,9 @@ with st.expander("Data requirements"):
         | ❌ Bad | Series with a different seasonal pattern than the response |
 
         One or two well-chosen covariates outperform a large set of loosely related ones.
+        Covariates do not need to be the same data type as the response — rates, counts, and
+        continuous values can be mixed freely. If covariates differ greatly in scale from the
+        response, consider normalizing them before upload to avoid numerical instability.
         """
     )
     st.markdown("**SQL template (BigQuery)**")
