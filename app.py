@@ -40,6 +40,8 @@ with col2:
     st.markdown("**Mediation Analysis (ROADMAPPED)**")
     st.caption("Decompose a total effect into direct and indirect paths through a mediator.")
 
+st.divider()
+
 st.markdown("### How to use")
 st.markdown("""
     * Select a page from the sidebar to view different tools.
