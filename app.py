@@ -24,18 +24,18 @@ with col1:
     st.markdown("**Causal Impact**")
     st.caption("Estimate the effect of an intervention on a time series metric without a control group.")
 
-    st.markdown("**Difference-in-Differences**")
-    st.caption("Compare a treated and control group across a before/after period (ROADMAPPED).")
+    st.markdown("**Difference-in-Differences (ROADMAPPED)**")
+    st.caption("Compare a treated and control group across a before/after period.")
 
-    st.markdown("**Propensity Score Matching**")
-    st.caption("Construct comparable groups from observational data to reduce selection bias (ROADMAPPED).")
+    st.markdown("**Propensity Score Matching (ROADMAPPED)**")
+    st.caption("Construct comparable groups from observational data to reduce selection bias.")
 
 with col2:
-    st.markdown("**Regression Discontinuity**")
-    st.caption("Estimate effects at a hard assignment threshold (ROADMAPPED).")
+    st.markdown("**Regression Discontinuity (ROADMAPPED)**")
+    st.caption("Estimate effects at a hard assignment threshold.")
 
-    st.markdown("**Synthetic Control**")
-    st.caption("Build a weighted counterfactual from donor units when a single unit is treated (ROADMAPPED).")
+    st.markdown("**Synthetic Control (ROADMAPPED)**")
+    st.caption("Build a weighted counterfactual from donor units when a single unit is treated.")
 
-    st.markdown("**Mediation Analysis**")
-    st.caption("Decompose a total effect into direct and indirect paths through a mediator (ROADMAPPED).")
+    st.markdown("**Mediation Analysis (ROADMAPPED)**")
+    st.caption("Decompose a total effect into direct and indirect paths through a mediator.")
