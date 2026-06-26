@@ -3,6 +3,7 @@ import streamlit as st
 st.set_page_config(page_title="Causekit", layout="wide")
 
 st.title("Causekit")
+st.write("### <span style='color: orange;'>v1.0</span>", unsafe_allow_html=True)
 st.caption("Causal inference toolkit for CRO teams.")
 
 st.markdown(
