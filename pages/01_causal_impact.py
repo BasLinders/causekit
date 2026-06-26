@@ -27,7 +27,11 @@ with st.expander("Data requirements"):
 
         The column names themselves do not matter — you will map them in the interface.
         At least 28 data points in the pre-period are recommended (4 full weeks for daily data).
-        
+        """
+    )
+    st.info("Make sure that your data spans **both** the pre-intervention and post-intervention periods. You can indicate the intervention date in the tool to split the data.")
+    st.markdown(
+        """
         **Covariates**
 
         A covariate must correlate with the response metric during the pre-period,
@@ -49,7 +53,6 @@ with st.expander("Data requirements"):
         response, consider normalizing them before upload to avoid numerical instability.
         """
     )
-    st.info("Make sure that your data contains both the pre-intervention and post-intervention period. To split the data, you'll indicate the intervention date in the tool.")
     st.markdown("**SQL template (BigQuery)**")
     st.code(
         """
