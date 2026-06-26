@@ -39,3 +39,16 @@ with col2:
 
     st.markdown("**Mediation Analysis (ROADMAPPED)**")
     st.caption("Decompose a total effect into direct and indirect paths through a mediator.")
+
+st.markdown("### How to use")
+st.markdown("""
+    * Select a page from the sidebar to view different tools.
+    * Each page contains a single tool for the purposes described above.
+      """)
+
+st.markdown("### About")
+st.write("Happy Horizon is a creative digital agency of experts in strategic thinking, analysis, creativity, digital services and technology.")
+
+linkedin_url = "https://www.linkedin.com/in/blinders/"
+footnote_text = f"""Engineered and developed by <a href="{linkedin_url}" target="_blank">Bas Linders</a>"""
+st.markdown(footnote_text, unsafe_allow_html=True)
