@@ -9,6 +9,6 @@ def load_csv(uploaded_file) -> pd.DataFrame:
 
 def parse_dates(df: pd.DataFrame, date_column: str) -> pd.DataFrame:
     df = df.copy()
-    df[date_column] = pd.to_datetime(df[date_column], infer_datetime_format=True)
+    df[date_column] = pd.to_datetime(df[date_column])
     df = df.set_index(date_column).sort_index()
     return df
