@@ -21,6 +21,7 @@ def run(
 
     return CausalImpactResult(
         inferences=ci.inferences,
+        observed=df.iloc[:, 0],
         pre_period=pre_period,
         post_period=post_period,
         summary=ci.summary(),
