@@ -63,4 +63,8 @@ def _render_cumulative_effect(result: CausalImpactResult) -> None:
 
 def _render_summary_table(summary: str) -> None:
     with st.expander("Statistical summary"):
-        st.text(summary)
+        cleaned = "\n".join(
+            line for line in summary.splitlines()
+            if "print(impact.summary" not in line
+        ).strip()
+        st.markdown(f"```\n{summary}\n```")
