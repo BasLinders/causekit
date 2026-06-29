@@ -8,9 +8,9 @@ def render(result: CausalImpactResult) -> None:
     st.subheader("Results")
 
     _render_report(result.report)
-    _render_actual_vs_predicted(result.inferences, result.post_period)
-    _render_pointwise_effect(result.inferences, result.post_period)
-    _render_cumulative_effect(result.inferences, result.post_period)
+    _render_actual_vs_predicted(result)
+    _render_pointwise_effect(result)
+    _render_cumulative_effect(result)
     _render_summary_table(result.summary)
 
 
@@ -19,52 +19,45 @@ def _render_report(report: str) -> None:
     st.info(report)
 
 
-def _render_actual_vs_predicted(inferences: pd.DataFrame, post_period: list) -> None:
+def _render_actual_vs_predicted(result: CausalImpactResult) -> None:
     st.markdown("#### Actual vs. counterfactual")
 
     chart_data = pd.DataFrame({
-        "Observed": inferences["observed"],
-        "Counterfactual": inferences["predicted"],
-        "Lower": inferences["predicted_lower"],
-        "Upper": inferences["predicted_upper"],
+        "Observed": result.observed,
+        "Counterfactual": result.inferences["complete_preds_means"],
     })
 
-    st.line_chart(chart_data[["Observed", "Counterfactual"]])
+    st.line_chart(chart_data)
     st.caption(
-        "Shaded credible interval and counterfactual shown. "
-        f"Intervention occurred at {post_period[0].date()}."
+        f"Intervention occurred at {result.post_period[0].date()}."
     )
 
 
-def _render_pointwise_effect(inferences: pd.DataFrame, post_period: list) -> None:
+def _render_pointwise_effect(result: CausalImpactResult) -> None:
     st.markdown("#### Pointwise effect")
 
-    post_mask = inferences.index >= post_period[0]
-    post = inferences[post_mask]
+    post_mask = result.inferences.index >= result.post_period[0]
+    post = result.inferences[post_mask]
 
     chart_data = pd.DataFrame({
-        "Effect": post["point_effect"],
-        "Lower": post["point_effect_lower"],
-        "Upper": post["point_effect_upper"],
+        "Effect": post["point_effects_means"],
     })
 
-    st.line_chart(chart_data[["Effect"]])
+    st.line_chart(chart_data)
     st.caption("Estimated effect at each point in the post-period (observed minus counterfactual).")
 
 
-def _render_cumulative_effect(inferences: pd.DataFrame, post_period: list) -> None:
+def _render_cumulative_effect(result: CausalImpactResult) -> None:
     st.markdown("#### Cumulative effect")
 
-    post_mask = inferences.index >= post_period[0]
-    post = inferences[post_mask]
+    post_mask = result.inferences.index >= result.post_period[0]
+    post = result.inferences[post_mask]
 
     chart_data = pd.DataFrame({
-        "Cumulative effect": post["cum_effect"],
-        "Lower": post["cum_effect_lower"],
-        "Upper": post["cum_effect_upper"],
+        "Cumulative effect": post["post_cum_effects_means"],
     })
 
-    st.line_chart(chart_data[["Cumulative effect"]])
+    st.line_chart(chart_data)
     st.caption("Running total of the estimated effect since the intervention.")
 
 
