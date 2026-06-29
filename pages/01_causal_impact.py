@@ -27,11 +27,7 @@ with st.expander("Data requirements"):
 
         The column names themselves do not matter — you will map them in the interface.
         At least 28 data points in the pre-period are recommended (4 full weeks for daily data).
-        """
-    )
-    st.info("Make sure that your data spans **both** the pre-intervention and post-intervention periods. You can indicate the intervention date in the tool to split the data.")
-    st.markdown(
-        """
+
         **Covariates**
 
         A covariate must correlate with the response metric during the pre-period,
@@ -66,6 +62,7 @@ ORDER BY date
         """,
         language="sql",
     )
+
 with st.expander("What it does"):
     st.markdown(
         """
@@ -132,7 +129,7 @@ if raw_df is None:
     st.stop()
 
 with st.expander("Preview raw data"):
-    st.dataframe(raw_df.head(20), use_container_width=True)
+    st.dataframe(raw_df.head(20), width="stretch")
 
 # ── 2. Column mapping & settings ───────────────────────────────────────────────
 
