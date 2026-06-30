@@ -26,7 +26,7 @@ with st.expander("Data requirements"):
 
         | Column | Type | Description |
         |---|---|---|
-        | Date | date / datetime | One row per time period. Supported formats: `YYYY-MM-DD`, `DD-MM-YYYY`, `MM/DD/YYYY`. |
+        | Date | date / datetime | One row per time period. Supported formats: `YYYY-MM-DD` or `DD-MM-YYYY`, with `-`, `/` or `.` as separator. The whole column must use one consistent format. |
         | Response | numeric | The metric you want to analyze (e.g. conversions, revenue, sessions). |
         | Covariates *(optional)* | numeric | Control time series unaffected by the intervention. Improves counterfactual accuracy. |
 
