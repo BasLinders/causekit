@@ -6,6 +6,14 @@ GRANULARITY_MAP = {
     "Monthly": "MS",
 }
 
+# Lower rank = finer-grained. Used to detect when a user requests a granularity
+# finer than the data's native cadence, which would require fabricating data.
+GRANULARITY_RANK = {
+    "Daily": 0,
+    "Weekly": 1,
+    "Monthly": 2,
+}
+
 AGGREGATION_MAP = {
     "Sum": "sum",
     "Mean": "mean",

@@ -8,17 +8,40 @@ _ISO_PATTERN = re.compile(r"^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$")
 # Matches DD-MM-YYYY with -, / or . as separator.
 _DAY_FIRST_PATTERN = re.compile(r"^\d{1,2}[-/.]\d{1,2}[-/.]\d{4}$")
 
+# Tried in order. utf-8-sig also transparently handles plain UTF-8 (with or
+# without a BOM), so it covers the common case; cp1252/latin-1 catch Excel
+# exports on Windows.
+_ENCODINGS = ("utf-8-sig", "cp1252", "latin-1")
+
 
 def load_csv(uploaded_file) -> pd.DataFrame:
-    content = uploaded_file.read().decode("utf-8")
-    return pd.read_csv(StringIO(content))
+    raw_bytes = uploaded_file.read()
+    for encoding in _ENCODINGS:
+        try:
+            content = raw_bytes.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        return pd.read_csv(StringIO(content))
+    raise ValueError(
+        "Could not decode the CSV file. Supported encodings: UTF-8 (with or "
+        "without BOM), CP1252, Latin-1."
+    )
 
 
-def parse_dates(df: pd.DataFrame, date_column: str) -> pd.DataFrame:
+def parse_dates(df: pd.DataFrame, date_column: str) -> tuple[pd.DataFrame, int]:
+    """
+    Returns the date-indexed, sorted DataFrame and the number of rows dropped
+    because the date column was blank or unparseable on that row.
+    """
     df = df.copy()
     df[date_column] = _parse_date_series(df[date_column])
+
+    rows_before = len(df)
+    df = df.dropna(subset=[date_column])
+    dropped = rows_before - len(df)
+
     df = df.set_index(date_column).sort_index()
-    return df
+    return df, dropped
 
 
 def _parse_date_series(series: pd.Series) -> pd.Series:
@@ -29,7 +52,7 @@ def _parse_date_series(series: pd.Series) -> pd.Series:
     the whole column and applied consistently.
     """
     raw = series.astype(str).str.strip()
-    non_null = raw[raw.str.lower() != "nan"]
+    non_null = raw[(raw.str.lower() != "nan") & (raw != "")]
 
     if non_null.empty:
         raise ValueError("Date column is empty.")

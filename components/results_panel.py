@@ -10,20 +10,52 @@ EFFECT_COLOR = "#2ca02c"
 INTERVENTION_COLOR = "#555555"
 CI_ALPHA = 0.2
 
+# Required tfcausalimpact inference columns, keyed by the chart that needs them.
+_REQUIRED_COLUMNS = {
+    "actual_vs_predicted": ["complete_preds_means", "complete_preds_lower", "complete_preds_upper"],
+    "pointwise_effect": ["point_effects_means", "point_effects_lower", "point_effects_upper"],
+    "cumulative_effect": ["post_cum_effects_means", "post_cum_effects_lower", "post_cum_effects_upper"],
+}
+
 
 def render(result: CausalImpactResult) -> None:
     st.subheader("Results")
 
     _render_report(result.report)
+    _render_headline_metric(result)
     _render_actual_vs_predicted(result)
     _render_pointwise_effect(result)
     _render_cumulative_effect(result)
     _render_summary_table(result.summary)
+    _render_download(result)
 
 
 def _render_report(report: str) -> None:
     st.markdown("#### Interpretation")
     st.info(report)
+
+
+def _render_headline_metric(result: CausalImpactResult) -> None:
+    inferences = result.inferences
+    if "post_cum_effects_means" not in inferences.columns or "post_cum_preds_means" not in inferences.columns:
+        return
+
+    post = inferences[inferences.index >= result.post_period[0]]
+    if post.empty:
+        return
+
+    absolute_effect = post["post_cum_effects_means"].iloc[-1]
+    counterfactual_total = post["post_cum_preds_means"].iloc[-1]
+
+    col1, col2 = st.columns(2)
+    col1.metric("Cumulative effect", f"{absolute_effect:,.2f}")
+    if counterfactual_total:
+        relative_pct = absolute_effect / counterfactual_total * 100
+        col2.metric("Relative lift", f"{relative_pct:+.1f}%")
+
+
+def _missing_columns(inferences, chart_key: str) -> list[str]:
+    return [col for col in _REQUIRED_COLUMNS[chart_key] if col not in inferences.columns]
 
 
 def _ci_label(alpha: float) -> str:
@@ -57,6 +89,11 @@ def _render_actual_vs_predicted(result: CausalImpactResult) -> None:
 
     inferences = result.inferences
     intervention_date = result.post_period[0]
+
+    missing = _missing_columns(inferences, "actual_vs_predicted")
+    if missing:
+        st.warning(f"Can't render this chart — missing expected columns: {', '.join(missing)}.")
+        return
 
     fig, ax = _new_axes((10, 4.5))
 
@@ -94,6 +131,12 @@ def _render_pointwise_effect(result: CausalImpactResult) -> None:
 
     inferences = result.inferences
     intervention_date = result.post_period[0]
+
+    missing = _missing_columns(inferences, "pointwise_effect")
+    if missing:
+        st.warning(f"Can't render this chart — missing expected columns: {', '.join(missing)}.")
+        return
+
     post = inferences[inferences.index >= intervention_date]
 
     fig, ax = _new_axes((10, 3.5))
@@ -123,6 +166,12 @@ def _render_cumulative_effect(result: CausalImpactResult) -> None:
 
     inferences = result.inferences
     intervention_date = result.post_period[0]
+
+    missing = _missing_columns(inferences, "cumulative_effect")
+    if missing:
+        st.warning(f"Can't render this chart — missing expected columns: {', '.join(missing)}.")
+        return
+
     post = inferences[inferences.index >= intervention_date]
 
     fig, ax = _new_axes((10, 3.5))
@@ -156,3 +205,23 @@ def _render_summary_table(summary: str) -> None:
             if "print(impact.summary" not in line
         ).strip()
         st.markdown(f"```\n{cleaned}\n```")
+
+
+def _render_download(result: CausalImpactResult) -> None:
+    export_cols = [
+        col for col in (
+            "complete_preds_means", "complete_preds_lower", "complete_preds_upper",
+            "point_effects_means", "point_effects_lower", "point_effects_upper",
+            "post_cum_effects_means", "post_cum_effects_lower", "post_cum_effects_upper",
+        )
+        if col in result.inferences.columns
+    ]
+    export_df = result.inferences[export_cols].copy()
+    export_df.insert(0, "observed", result.observed)
+
+    st.download_button(
+        "Download results as CSV",
+        data=export_df.to_csv().encode("utf-8"),
+        file_name="causal_impact_results.csv",
+        mime="text/csv",
+    )
