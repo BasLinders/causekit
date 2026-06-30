@@ -1,8 +1,10 @@
+import hashlib
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import pandas as pd
 import streamlit as st
 
 from components import assumption_panel, ingestion_ui, results_panel
@@ -16,6 +18,17 @@ st.caption(
     "Estimate the effect of an intervention on a time series metric "
     "using a Bayesian structural time series model."
 )
+
+
+def _compute_signature(raw_df: pd.DataFrame, mapping: dict) -> str:
+    """
+    Identifies the data + settings that produced a result, so stale results
+    from a previous file/mapping aren't shown alongside changed inputs.
+    """
+    df_hash = pd.util.hash_pandas_object(raw_df, index=True).sum()
+    mapping_repr = repr(sorted(mapping.items(), key=lambda kv: kv[0]))
+    return hashlib.sha256(f"{df_hash}|{mapping_repr}".encode()).hexdigest()
+
 
 # ── Documentation ──────────────────────────────────────────────────────────────
 
@@ -127,7 +140,7 @@ with st.expander("How to interpret the results"):
 
 # ── 1. Upload ──────────────────────────────────────────────────────────────────
 
-raw_df = ingestion_ui.render_uploader()
+raw_df = ingestion_ui.render_uploader(key_prefix="ci_")
 
 if raw_df is None:
     st.info("Upload a CSV file to get started.")
@@ -139,25 +152,53 @@ with st.expander("Preview raw data"):
 # ── 2. Column mapping & settings ───────────────────────────────────────────────
 
 st.divider()
-mapping = ingestion_ui.render_column_mapping(raw_df)
+mapping = ingestion_ui.render_column_mapping(raw_df, key_prefix="ci_")
 
 if mapping is None:
     st.stop()
 
+current_signature = _compute_signature(raw_df, mapping)
+
 # ── 3. Ingest pipeline ─────────────────────────────────────────────────────────
 
 try:
-    df = loader.parse_dates(raw_df, mapping["date_col"])
+    df, dropped_date_rows = loader.parse_dates(raw_df, mapping["date_col"])
 except Exception as e:
     st.error(f"Failed to parse date column: {e}")
     st.stop()
 
+if dropped_date_rows:
+    st.warning(
+        f"Dropped {dropped_date_rows} row{'s' if dropped_date_rows != 1 else ''} with a blank or "
+        "unparseable date."
+    )
+
 all_metric_cols = [mapping["response_col"]] + (mapping["covariate_cols"] or [])
 
-df = cleaner.drop_duplicate_dates(df)
-df = cleaner.coerce_numeric(df, all_metric_cols)
-df, gap_warnings = cleaner.interpolate_gaps(df, all_metric_cols)
+df, dropped_duplicates = cleaner.drop_duplicate_dates(df)
+if dropped_duplicates:
+    st.warning(
+        f"Dropped {dropped_duplicates} row{'s' if dropped_duplicates != 1 else ''} with a duplicate date "
+        "(kept the first occurrence)."
+    )
 
+native_granularity = cleaner.infer_native_granularity(df)
+df, synthesized_rows = cleaner.enforce_regular_frequency(df, native_granularity)
+if synthesized_rows:
+    st.warning(
+        f"The data was missing {synthesized_rows} date{'s' if synthesized_rows != 1 else ''} "
+        f"at its native ({native_granularity.lower()}) cadence. These were added as gaps and "
+        "interpolated below, rather than silently treated as zero."
+    )
+
+df, coerced_counts = cleaner.coerce_numeric(df, all_metric_cols)
+for col, count in coerced_counts.items():
+    st.warning(
+        f"'{col}' had {count} value{'s' if count != 1 else ''} that couldn't be read as a number "
+        "and were treated as missing."
+    )
+
+df, gap_warnings = cleaner.interpolate_gaps(df, all_metric_cols)
 for warning in gap_warnings:
     st.warning(warning)
 
@@ -171,6 +212,8 @@ validation = validator.validate(
     response_col=mapping["response_col"],
     intervention_date=mapping["intervention_date"],
     covariate_cols=mapping["covariate_cols"],
+    selected_granularity=mapping["granularity"],
+    native_granularity=native_granularity,
 )
 
 for error in validation.errors:
@@ -187,6 +230,11 @@ if not validation.valid:
 st.divider()
 pre_period, post_period = wrangler.split_periods(df, mapping["intervention_date"])
 pre_series = df.loc[pre_period[0]:pre_period[1], mapping["response_col"]]
+
+if post_period[0].date() != mapping["intervention_date"].date():
+    st.caption(
+        f"Intervention date aligned to {post_period[0].date()} to match the selected granularity."
+    )
 
 assumption_results = stationarity.run_all(pre_series, mapping["covariate_cols"])
 can_proceed = assumption_panel.render(assumption_results)
@@ -209,7 +257,14 @@ if st.button("Run Causal Impact analysis", type="primary"):
             st.stop()
 
     st.session_state["ci_result"] = result
+    st.session_state["ci_signature"] = current_signature
 
 if "ci_result" in st.session_state:
     st.divider()
-    results_panel.render(st.session_state["ci_result"])
+    if st.session_state.get("ci_signature") == current_signature:
+        results_panel.render(st.session_state["ci_result"])
+    else:
+        st.info(
+            "Data or settings changed since the last run — click "
+            "'Run Causal Impact analysis' to refresh the results."
+        )

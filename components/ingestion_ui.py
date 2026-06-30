@@ -5,33 +5,43 @@ from core.ingestion.loader import load_csv, parse_dates
 from core.ingestion.wrangler import GRANULARITY_MAP, AGGREGATION_MAP
 
 
-def render_uploader() -> pd.DataFrame | None:
+def render_uploader(key_prefix: str = "") -> pd.DataFrame | None:
     """File upload widget. Returns a raw DataFrame or None if no file is uploaded."""
-    uploaded_file = st.file_uploader("Upload a CSV file", type=["csv"])
+    uploaded_file = st.file_uploader("Upload a CSV file", type=["csv"], key=f"{key_prefix}file_uploader")
     if uploaded_file is None:
         return None
-    return load_csv(uploaded_file)
+    try:
+        return load_csv(uploaded_file)
+    except ValueError as e:
+        st.error(str(e))
+        return None
 
 
-def render_column_mapping(df: pd.DataFrame) -> dict | None:
+def render_column_mapping(df: pd.DataFrame, key_prefix: str = "") -> dict | None:
     """
     Column mapping UI. Returns a dict with selected columns and settings,
     or None if the user has not completed the mapping.
+
+    key_prefix namespaces the underlying widget keys so this component can be
+    reused on multiple pages within the same Streamlit session without their
+    selections bleeding into each other.
     """
     st.subheader("Column mapping")
 
     columns = list(df.columns)
 
-    date_col = st.selectbox("Date column", options=columns, key="date_col")
+    date_col = st.selectbox("Date column", options=columns, key=f"{key_prefix}date_col")
     remaining = [c for c in columns if c != date_col]
 
-    response_col = st.selectbox("Response column (metric to analyze)", options=remaining, key="response_col")
+    response_col = st.selectbox(
+        "Response column (metric to analyze)", options=remaining, key=f"{key_prefix}response_col"
+    )
     remaining_after_response = [c for c in remaining if c != response_col]
 
     covariate_cols = st.multiselect(
         "Covariate columns (optional)",
         options=remaining_after_response,
-        key="covariate_cols",
+        key=f"{key_prefix}covariate_cols",
         help="Control time series unaffected by the intervention. Improves counterfactual accuracy.",
     )
 
@@ -40,23 +50,23 @@ def render_column_mapping(df: pd.DataFrame) -> dict | None:
     granularity = st.selectbox(
         "Granularity",
         options=list(GRANULARITY_MAP.keys()),
-        key="granularity",
+        key=f"{key_prefix}granularity",
         help="Aggregate the data to this time interval before analysis.",
     )
 
     aggregation = st.selectbox(
         "Aggregation",
         options=list(AGGREGATION_MAP.keys()),
-        key="aggregation",
+        key=f"{key_prefix}aggregation",
         help="How to aggregate values when resampling. Use Sum for volume metrics, Mean for rates.",
     )
 
     try:
-        parsed_df = parse_dates(df, date_col)
+        parsed_df, _ = parse_dates(df, date_col)
         min_date = parsed_df.index.min().date()
         max_date = parsed_df.index.max().date()
-    except Exception:
-        st.error("Could not parse the selected date column. Ensure it contains valid dates.")
+    except Exception as e:
+        st.error(f"Could not parse the selected date column: {e}")
         return None
 
     intervention_date = st.date_input(
@@ -64,7 +74,7 @@ def render_column_mapping(df: pd.DataFrame) -> dict | None:
         value=min_date + (max_date - min_date) // 2,
         min_value=min_date,
         max_value=max_date,
-        key="intervention_date",
+        key=f"{key_prefix}intervention_date",
         help="The date on which the intervention occurred. Splits the series into pre and post periods.",
     )
 

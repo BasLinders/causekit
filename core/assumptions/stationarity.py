@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from statsmodels.tsa.stattools import adfuller
 
 STATIONARITY_ALPHA = 0.05
+MIN_POINTS_FOR_ADF = 8
 
 
 @dataclass
@@ -20,7 +21,32 @@ def check_stationarity(pre_period_series: pd.Series) -> AssumptionResult:
     Non-stationarity is a warning, not a hard blocker — the BSTS model can handle
     some degree of non-stationarity, but it degrades counterfactual reliability.
     """
-    result = adfuller(pre_period_series.dropna(), autolag="AIC")
+    series = pre_period_series.dropna()
+
+    if len(series) < MIN_POINTS_FOR_ADF or series.nunique() <= 1:
+        return AssumptionResult(
+            name="Stationarity",
+            passed=False,
+            is_warning=True,
+            message=(
+                "Could not run the stationarity test — the pre-period is too short or "
+                "has no variation. Proceed with caution; the counterfactual may be unreliable."
+            ),
+        )
+
+    try:
+        result = adfuller(series, autolag="AIC")
+    except Exception as e:
+        return AssumptionResult(
+            name="Stationarity",
+            passed=False,
+            is_warning=True,
+            message=(
+                f"Could not run the stationarity test ({e}). "
+                "Proceed with caution; the counterfactual may be unreliable."
+            ),
+        )
+
     p_value = result[1]
     passed = p_value < STATIONARITY_ALPHA
 
