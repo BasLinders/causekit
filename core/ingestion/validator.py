@@ -1,10 +1,25 @@
 import pandas as pd
 from dataclasses import dataclass, field
 
-from core.ingestion.wrangler import GRANULARITY_RANK
+# Minimum recommended pre-period points per granularity, anchored to 4 weeks in days.
+# Monthly uses 6 as a practical minimum — 1 month is insufficient for reliable BSTS fitting.
+PRE_PERIOD_THRESHOLDS = {
+    "Daily": 28,   # 4 weeks × 7 days
+    "Weekly": 4,   # 4 weeks
+    "Monthly": 6,  # 6 months
+}
 
-PRE_PERIOD_WARN_THRESHOLD = 28
-POST_PERIOD_WARN_THRESHOLD = 7
+PRE_PERIOD_LABELS = {
+    "Daily": "4 full weeks",
+    "Weekly": "4 full weeks",
+    "Monthly": "6 months",
+}
+
+PERIOD_UNIT = {
+    "Daily": "day",
+    "Weekly": "week",
+    "Monthly": "month",
+}
 
 
 @dataclass
@@ -18,9 +33,9 @@ def validate(
     df: pd.DataFrame,
     response_col: str,
     intervention_date: pd.Timestamp,
-    covariate_cols: list[str] | None = None,
-    selected_granularity: str | None = None,
+    selected_granularity: str = "Daily",
     native_granularity: str | None = None,
+    covariate_cols: list[str] | None = None,
 ) -> ValidationResult:
     errors: list[str] = []
     warnings: list[str] = []
@@ -31,12 +46,17 @@ def validate(
     else:
         if not pd.api.types.is_numeric_dtype(df[response_col]):
             errors.append(f"Response column '{response_col}' must be numeric.")
-        elif df[response_col].isnull().all():
+        if df[response_col].isnull().all():
             errors.append(f"Response column '{response_col}' contains only null values.")
-        elif df[response_col].isnull().any():
-            errors.append(
-                f"Response column '{response_col}' still contains missing values after cleaning. "
-                "This usually means a gap was too large to interpolate reliably."
+
+    # Granularity downsampling warning
+    if native_granularity and selected_granularity != native_granularity:
+        granularity_order = ["Daily", "Weekly", "Monthly"]
+        if granularity_order.index(selected_granularity) < granularity_order.index(native_granularity):
+            warnings.append(
+                f"The selected granularity ({selected_granularity.lower()}) is finer than the "
+                f"data's native cadence ({native_granularity.lower()}). This will introduce "
+                "empty periods that are filled by interpolation."
             )
 
     # Intervention date bounds
@@ -46,20 +66,16 @@ def validate(
         errors.append("Intervention date must fall before the end of the time series.")
     else:
         pre_period_points = (df.index < intervention_date).sum()
-        if pre_period_points < PRE_PERIOD_WARN_THRESHOLD:
-            warnings.append(
-                f"The pre-period contains {pre_period_points} data "
-                f"point{'s' if pre_period_points != 1 else ''}. "
-                f"At least {PRE_PERIOD_WARN_THRESHOLD} are recommended (4 full weeks) "
-                "for a reliable counterfactual estimate."
-            )
+        threshold = PRE_PERIOD_THRESHOLDS.get(selected_granularity, 28)
+        label = PRE_PERIOD_LABELS.get(selected_granularity, "4 full weeks")
+        unit = PERIOD_UNIT.get(selected_granularity, "day")
 
-        post_period_points = (df.index >= intervention_date).sum()
-        if post_period_points < POST_PERIOD_WARN_THRESHOLD:
+        if pre_period_points < threshold:
             warnings.append(
-                f"The post-period contains {post_period_points} data "
-                f"point{'s' if post_period_points != 1 else ''}. "
-                f"At least {POST_PERIOD_WARN_THRESHOLD} are recommended for a stable effect estimate."
+                f"The pre-period contains {pre_period_points} {unit}"
+                f"{'s' if pre_period_points != 1 else ''}. "
+                f"At least {threshold} are recommended ({label}) "
+                "for a reliable counterfactual estimate."
             )
 
     # Covariate columns
@@ -70,23 +86,7 @@ def validate(
             else:
                 if not pd.api.types.is_numeric_dtype(df[col]):
                     errors.append(f"Covariate column '{col}' must be numeric.")
-                elif df[col].isnull().all():
+                if df[col].isnull().all():
                     errors.append(f"Covariate column '{col}' contains only null values.")
-                elif df[col].isnull().any():
-                    errors.append(
-                        f"Covariate column '{col}' still contains missing values after cleaning. "
-                        "This usually means a gap was too large to interpolate reliably."
-                    )
-
-    # Granularity vs. the data's native cadence
-    if selected_granularity and native_granularity:
-        selected_rank = GRANULARITY_RANK.get(selected_granularity)
-        native_rank = GRANULARITY_RANK.get(native_granularity)
-        if selected_rank is not None and native_rank is not None and selected_rank < native_rank:
-            warnings.append(
-                f"You selected '{selected_granularity}' granularity, but the data's native cadence "
-                f"looks like '{native_granularity}'. Periods finer than the source data have to be "
-                "fabricated and may distort results — consider matching the granularity to the data."
-            )
 
     return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=warnings)
