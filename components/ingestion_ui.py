@@ -33,6 +33,13 @@ def render_column_mapping(df: pd.DataFrame, key_prefix: str = "") -> dict | None
     date_col = st.selectbox("Date column", options=columns, key=f"{key_prefix}date_col")
     remaining = [c for c in columns if c != date_col]
 
+    if not remaining:
+        st.error(
+            "No columns are left to use as the response metric once the date column is excluded. "
+            "Your CSV needs at least one numeric column besides the date."
+        )
+        return None
+
     response_col = st.selectbox(
         "Response column (metric to analyze)", options=remaining, key=f"{key_prefix}response_col"
     )
