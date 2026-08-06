@@ -21,11 +21,30 @@ def load_csv(uploaded_file) -> pd.DataFrame:
             content = raw_bytes.decode(encoding)
         except UnicodeDecodeError:
             continue
-        return pd.read_csv(StringIO(content))
+        return _read_csv(content)
     raise ValueError(
         "Could not decode the CSV file. Supported encodings: UTF-8 (with or "
         "without BOM), CP1252, Latin-1."
     )
+
+
+def _read_csv(content: str) -> pd.DataFrame:
+    """
+    Parse CSV text with the column separator detected automatically, rather
+    than assuming comma. Excel exports from many European locales (e.g. NL)
+    use ';' as the field separator, with ',' reserved as the decimal mark.
+    """
+    try:
+        df = pd.read_csv(StringIO(content), sep=None, engine="python")
+    except Exception as e:
+        raise ValueError(f"Could not parse the CSV file: {e}") from e
+
+    if df.shape[1] < 2:
+        raise ValueError(
+            "Could not detect the CSV column separator. Supported separators: "
+            "comma (,), semicolon (;), tab, and pipe (|)."
+        )
+    return df
 
 
 def parse_dates(df: pd.DataFrame, date_column: str) -> tuple[pd.DataFrame, int]:
