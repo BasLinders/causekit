@@ -25,7 +25,7 @@ with col1:
     st.markdown("**Causal Impact**")
     st.caption("Estimate the effect of an intervention on a time series metric without a control group.")
 
-    st.markdown("**Difference-in-Differences (ROADMAPPED)**")
+    st.markdown("**Difference-in-Differences**")
     st.caption("Compare a treated and control group across a before/after period.")
 
     st.markdown("**Propensity Score Matching (ROADMAPPED)**")

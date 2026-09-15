@@ -131,5 +131,6 @@ Each method's ingestion step documents the required columns and data shape befor
 - `statsmodels`
 - `tfcausalimpact`
 - `pingouin`
+- `diff-diff` (Difference-in-Differences)
 
 ---

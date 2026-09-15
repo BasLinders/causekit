@@ -1,5 +1,8 @@
 import pandas as pd
 from dataclasses import dataclass, field
+from diff_diff import validate_did_data
+
+MIN_PRE_PERIODS_DID = 4
 
 # Minimum recommended pre-period points per granularity, anchored to 4 weeks in days.
 # Monthly uses 6 as a practical minimum — 1 month is insufficient for reliable BSTS fitting.
@@ -90,3 +93,47 @@ def validate(
                     errors.append(f"Covariate column '{col}' contains only null values.")
 
     return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=warnings)
+
+
+def validate_did(panel: pd.DataFrame) -> ValidationResult:
+    """
+    Validate a panel shaped by wrangler.shape_for_did() (columns: unit, time,
+    group, outcome, post). Delegates the core checks — both groups present and
+    non-empty, both groups have pre- and post-period observations, the group
+    column is binary — to diff_diff.validate_did_data(), which already
+    implements them, and adds two causekit-specific checks on top.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    required_cols = {"unit", "time", "group", "outcome", "post"}
+    missing_cols = required_cols - set(panel.columns)
+    if missing_cols:
+        errors.append(f"Missing required column(s): {', '.join(sorted(missing_cols))}.")
+        return ValidationResult(valid=False, errors=errors, warnings=warnings)
+
+    lib_result = validate_did_data(
+        panel, outcome="outcome", treatment="group", time="post", unit="unit", raise_on_error=False
+    )
+    errors.extend(lib_result["errors"])
+    warnings.extend(lib_result["warnings"])
+
+    if errors:
+        return ValidationResult(valid=False, errors=errors, warnings=warnings)
+
+    pre_periods_per_group = panel.loc[panel["post"] == 0].groupby("group")["time"].nunique()
+    if len(pre_periods_per_group) < 2 or (pre_periods_per_group < MIN_PRE_PERIODS_DID).any():
+        warnings.append(
+            f"At least one group has fewer than {MIN_PRE_PERIODS_DID} distinct pre-period time points. "
+            "The pre-trends check may be unreliable with so little pre-period data."
+        )
+
+    units_per_group = panel.groupby("group")["unit"].nunique()
+    if (units_per_group < 2).any():
+        warnings.append(
+            "At least one group contains only a single unit, so cluster-robust standard "
+            "errors aren't meaningful. Heteroskedasticity-robust standard errors will be "
+            "used instead."
+        )
+
+    return ValidationResult(valid=True, errors=errors, warnings=warnings)

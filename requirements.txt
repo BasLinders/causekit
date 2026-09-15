@@ -7,3 +7,4 @@ statsmodels
 tensorflow-cpu>=2.10
 tensorflow-probability[tf]>=0.18,<=0.25
 tfcausalimpact
+diff-diff>=3.12.0,<4

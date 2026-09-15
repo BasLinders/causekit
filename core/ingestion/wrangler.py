@@ -55,3 +55,41 @@ def shape_for_model(
     """Place response column first, covariates after — required by tfcausalimpact."""
     cols = [response_col] + (covariate_cols or [])
     return df[cols]
+
+
+def shape_for_did(
+    df: pd.DataFrame,
+    group_col: str,
+    outcome_col: str,
+    treated_label,
+    intervention_date: pd.Timestamp,
+    granularity: str,
+    aggregation: str = "Sum",
+    unit_col: str | None = None,
+) -> pd.DataFrame:
+    """
+    Reshape date-indexed long-format data (as produced by loader.parse_dates)
+    into the panel structure the DiD estimator expects: one row per unit-period
+    with columns unit, time, group (0/1 treated), outcome, post (0/1).
+
+    If unit_col is omitted, each group is treated as a single aggregate unit
+    (e.g. two summed time series, treated vs. control) — validate_did() will
+    warn that cluster-robust standard errors aren't meaningful in that case.
+    """
+    cols = [group_col, outcome_col] + ([unit_col] if unit_col else [])
+    working = df[cols].rename(columns={group_col: "group", outcome_col: "outcome"})
+    working["unit"] = working[unit_col] if unit_col else working["group"]
+    working["group"] = (working["group"] == treated_label).astype(int)
+
+    parts = []
+    for unit, unit_df in working.groupby("unit"):
+        group_value = unit_df["group"].iloc[0]
+        resampled = resample(unit_df[["outcome"]], granularity, aggregation)
+        resampled["unit"] = unit
+        resampled["group"] = group_value
+        parts.append(resampled)
+
+    panel = pd.concat(parts).rename_axis("time").reset_index()
+    panel["post"] = (panel["time"] >= intervention_date).astype(int)
+
+    return panel[["unit", "time", "group", "outcome", "post"]].sort_values(["unit", "time"]).reset_index(drop=True)
