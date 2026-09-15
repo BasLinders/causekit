@@ -9,8 +9,12 @@ Estimate the effect of an intervention on a time series metric using a Bayesian 
 
 ---
 
-## 🔲 Difference-in-Differences
+## ✅ Difference-in-Differences
 Compare a treated and control group observed before and after an intervention. Suited for staged rollouts, geo experiments, and cohort-based treatments where a clean control group exists.
+
+**Core:** `wrangler.shape_for_did`, `validator.validate_did`, `parallel_trends`, `diff_in_diff`, `DiDResult`
+
+**Components:** `ingestion_ui.render_did_column_mapping`, `assumption_panel`, `results_panel.render_did`
 
 Key assumption check: parallel trends in the pre-period — visualized and tested before analysis runs.
 

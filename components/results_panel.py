@@ -1,8 +1,10 @@
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+import pandas as pd
 import streamlit as st
 
-from core.results.models import CausalImpactResult
+from core.assumptions.parallel_trends import pre_trend_series
+from core.results.models import CausalImpactResult, DiDResult
 
 OBSERVED_COLOR = "#1f77b4"
 COUNTERFACTUAL_COLOR = "#d62728"
@@ -205,6 +207,123 @@ def _render_summary_table(summary: str) -> None:
             if "print(impact.summary" not in line
         ).strip()
         st.markdown(f"```\n{cleaned}\n```")
+
+
+DID_TREATED_COLOR = "#1f77b4"
+DID_CONTROL_COLOR = "#d62728"
+DID_COUNTERFACTUAL_COLOR = "#555555"
+
+
+def render_did(result: DiDResult, panel: pd.DataFrame) -> None:
+    st.subheader("Results")
+
+    _render_did_report(result.report)
+    _render_did_headline_metric(result)
+    _render_pre_trends_chart(panel)
+    _render_did_diagram(result)
+    _render_did_summary_table(result.summary)
+    _render_did_download(panel)
+
+
+def _render_did_report(report: str) -> None:
+    st.markdown("#### Interpretation")
+    st.info(report)
+
+
+def _render_did_headline_metric(result: DiDResult) -> None:
+    ci_label = f"{round((1 - result.alpha) * 100)}%"
+    col1, col2 = st.columns(2)
+    col1.metric("Effect estimate (ATT)", f"{result.att:,.2f}")
+    col2.metric(f"{ci_label} CI", f"[{result.conf_int[0]:,.2f}, {result.conf_int[1]:,.2f}]")
+    if not result.clustered:
+        st.caption(
+            "Standard errors are heteroskedasticity-robust, not cluster-robust — "
+            "at least one group contains only a single unit."
+        )
+
+
+def _render_pre_trends_chart(panel: pd.DataFrame) -> None:
+    st.markdown("#### Pre-period trends")
+
+    trends = pre_trend_series(panel)
+    if trends.empty:
+        st.warning("Not enough pre-period data to plot trends.")
+        return
+
+    fig, ax = _new_axes((10, 4))
+    for group_value, label, color in ((1, "Treated", DID_TREATED_COLOR), (0, "Control", DID_CONTROL_COLOR)):
+        series = trends[trends["group"] == group_value]
+        ax.plot(series["time"], series["outcome"], color=color, marker="o", linewidth=1.6, label=label)
+
+    ax.set_ylabel("Value")
+    ax.grid(True, alpha=0.3)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
+    ax.legend(loc="upper left", frameon=False)
+    fig.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
+
+    st.caption(
+        "Treated and control group means over the pre-period. Roughly parallel lines support "
+        "the parallel trends assumption; diverging lines suggest the DiD estimate may be biased."
+    )
+
+
+def _render_did_diagram(result: DiDResult) -> None:
+    st.markdown("#### The 2×2 comparison")
+
+    means = result.group_period_means
+    if "treated" not in means.index or "control" not in means.index or not {"pre", "post"} <= set(means.columns):
+        st.warning("Can't render this chart — missing treated/control group means for pre/post.")
+        return
+
+    treated_pre, treated_post = means.loc["treated", "pre"], means.loc["treated", "post"]
+    control_pre, control_post = means.loc["control", "pre"], means.loc["control", "post"]
+    counterfactual_post = treated_pre + (control_post - control_pre)
+
+    x = [0, 1]
+    fig, ax = plt.subplots(figsize=(6, 4.5))
+    ax.plot(x, [treated_pre, treated_post], color=DID_TREATED_COLOR, marker="o", linewidth=1.8, label="Treated")
+    ax.plot(x, [control_pre, control_post], color=DID_CONTROL_COLOR, marker="o", linewidth=1.8, label="Control")
+    ax.plot(
+        x, [treated_pre, counterfactual_post],
+        color=DID_COUNTERFACTUAL_COLOR, marker="o", linestyle="--", linewidth=1.6,
+        label="Counterfactual",
+    )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(["Pre", "Post"])
+    ax.set_ylabel("Value")
+    ax.grid(True, alpha=0.3)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.legend(loc="upper left", frameon=False)
+    fig.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
+
+    st.caption(
+        "The dashed grey line projects the treated group's pre-period level forward using the "
+        "control group's change — the counterfactual. The gap between it and the treated "
+        "group's actual post-period value (solid blue) is the DiD effect estimate."
+    )
+
+
+def _render_did_summary_table(summary: str) -> None:
+    with st.expander("Statistical summary"):
+        st.markdown(f"```\n{summary}\n```")
+
+
+def _render_did_download(panel: pd.DataFrame) -> None:
+    st.download_button(
+        "Download panel data as CSV",
+        data=panel.to_csv(index=False).encode("utf-8"),
+        file_name="diff_in_diff_panel.csv",
+        mime="text/csv",
+    )
 
 
 def _render_download(result: CausalImpactResult) -> None:
