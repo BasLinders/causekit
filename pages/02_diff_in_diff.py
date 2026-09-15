@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pandas as pd
 import streamlit as st
 
-from components import assumption_panel, ingestion_ui, results_panel
+from components import assumption_panel, bq_ui, ingestion_ui, results_panel
 from core.assumptions import parallel_trends
 from core.ingestion import cleaner, loader, validator, wrangler
 from core.methods import diff_in_diff
@@ -84,13 +84,17 @@ with st.expander("How to use"):
     st.markdown(
         """
         1. **Upload** a CSV file containing panel data — one row per unit-period observation.
-        2. **Map columns** — select the date, group, outcome, and (optionally) unit columns,
+        2. **No control group yet?** If your data has many candidate units (stores, regions) and
+           you haven't picked which are control, use "Don't have a control group yet? Suggest
+           one" to rank candidates by pre-period trend similarity to your treated unit(s) and
+           build a group column from your picks.
+        3. **Map columns** — select the date, group, outcome, and (optionally) unit columns,
            and which value of the group column is the treated group.
-        3. **Set granularity** — choose whether to analyze at daily, weekly, or monthly level.
-        4. **Set the intervention date** — the date on which the intervention occurred.
+        4. **Set granularity** — choose whether to analyze at daily, weekly, or monthly level.
+        5. **Set the intervention date** — the date on which the intervention occurred.
            This splits the series into the pre-period and post-period.
-        5. **Review assumption checks** — address the parallel-trends warning before proceeding.
-        6. **Run the analysis** and review the results.
+        6. **Review assumption checks** — address the parallel-trends warning before proceeding.
+        7. **Run the analysis** and review the results.
         """
     )
 
@@ -117,13 +121,21 @@ with st.expander("How to interpret the results"):
         """
     )
 
-# ── 1. Upload ──────────────────────────────────────────────────────────────────
+# ── 1. Data source ─────────────────────────────────────────────────────────────
 
-raw_df = ingestion_ui.render_uploader(key_prefix="did_")
+data_source = st.radio(
+    "Data source", options=["CSV upload", "BigQuery"], key="did_data_source", horizontal=True
+)
 
-if raw_df is None:
-    st.info("Upload a CSV file to get started.")
-    st.stop()
+if data_source == "CSV upload":
+    raw_df = ingestion_ui.render_uploader(key_prefix="did_")
+    if raw_df is None:
+        st.info("Upload a CSV file to get started.")
+        st.stop()
+else:
+    raw_df = bq_ui.render_bq_grouped_export(page_path="diff_in_diff")
+    if raw_df is None:
+        st.stop()
 
 with st.expander("Preview raw data"):
     st.dataframe(raw_df.head(20), width="stretch")
@@ -131,17 +143,18 @@ with st.expander("Preview raw data"):
 # ── 2. Column mapping & settings ───────────────────────────────────────────────
 
 st.divider()
-mapping = ingestion_ui.render_did_column_mapping(raw_df, key_prefix="did_")
+working_df = ingestion_ui.render_control_suggestion(raw_df, key_prefix="did_")
+mapping = ingestion_ui.render_did_column_mapping(working_df, key_prefix="did_")
 
 if mapping is None:
     st.stop()
 
-current_signature = _compute_signature(raw_df, mapping)
+current_signature = _compute_signature(working_df, mapping)
 
 # ── 3. Ingest pipeline ─────────────────────────────────────────────────────────
 
 try:
-    df, dropped_date_rows = loader.parse_dates(raw_df, mapping["time_col"])
+    df, dropped_date_rows = loader.parse_dates(working_df, mapping["time_col"])
 except Exception as e:
     st.error(f"Failed to parse date column: {e}")
     st.stop()

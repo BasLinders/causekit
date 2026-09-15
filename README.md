@@ -113,11 +113,33 @@ streamlit run app.py
 
 ## Data input
 
-Causekit accepts:
+Causekit accepts, per page:
 - CSV file upload via the UI
-- BigQuery via the shared ingestion layer (requires appropriate credentials)
+- BigQuery, against a GA4 `events_*` export — each analyst authorizes their own Google
+  account (OAuth); no shared service-account credentials are provisioned. See "BigQuery
+  setup" below.
 
 Each method's ingestion step documents the required columns and data shape before asking for analysis parameters.
+
+### BigQuery setup
+
+1. Add a deployment-level redirect base URL to `.streamlit/secrets.toml` (not committed):
+   ```toml
+   BQ_REDIRECT_URI = "https://<your-deployment-url>"
+   ```
+2. Each analyst creates their own OAuth 2.0 Client ID at
+   [console.cloud.google.com](https://console.cloud.google.com) (APIs & Services →
+   Credentials), registering `<BQ_REDIRECT_URI>/causal_impact` and
+   `<BQ_REDIRECT_URI>/diff_in_diff` as authorised redirect URIs — each page needs its own,
+   since the OAuth callback lands back on whichever page started the flow.
+3. On the page, choose "BigQuery" as the data source, enter that client ID/secret (kept
+   only in the browser session, never written to disk), and sign in with Google.
+
+Causal Impact pulls a plain daily time series (date + metric columns). Difference-in-
+Differences pulls the same, split into a `segment` column either by a built-in GA4 column
+(e.g. `geo.country`, `device.category`) or by an `event_params` value (for a feature-flag/
+rollout split that isn't a built-in dimension) — select `segment` as the group column in
+the normal column-mapping step afterward.
 
 ---
 
@@ -132,5 +154,6 @@ Each method's ingestion step documents the required columns and data shape befor
 - `tfcausalimpact`
 - `pingouin`
 - `diff-diff` (Difference-in-Differences)
+- `google-cloud-bigquery`, `google-cloud-resourcemanager`, `google-auth-oauthlib` (BigQuery data source)
 
 ---
