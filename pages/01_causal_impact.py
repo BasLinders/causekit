@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pandas as pd
 import streamlit as st
 
-from components import assumption_panel, ingestion_ui, results_panel
+from components import assumption_panel, bq_ui, ingestion_ui, results_panel
 from core.assumptions import stationarity
 from core.ingestion import cleaner, loader, validator, wrangler
 from core.methods import causal_impact
@@ -138,13 +138,21 @@ with st.expander("How to interpret the results"):
         """
     )
 
-# ── 1. Upload ──────────────────────────────────────────────────────────────────
+# ── 1. Data source ─────────────────────────────────────────────────────────────
 
-raw_df = ingestion_ui.render_uploader(key_prefix="ci_")
+data_source = st.radio(
+    "Data source", options=["CSV upload", "BigQuery"], key="ci_data_source", horizontal=True
+)
 
-if raw_df is None:
-    st.info("Upload a CSV file to get started.")
-    st.stop()
+if data_source == "CSV upload":
+    raw_df = ingestion_ui.render_uploader(key_prefix="ci_")
+    if raw_df is None:
+        st.info("Upload a CSV file to get started.")
+        st.stop()
+else:
+    raw_df = bq_ui.render_bq_timeseries_export(page_path="causal_impact")
+    if raw_df is None:
+        st.stop()
 
 with st.expander("Preview raw data"):
     st.dataframe(raw_df.head(20), width="stretch")

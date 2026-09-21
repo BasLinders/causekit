@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 
 from core.ingestion.loader import load_csv, parse_dates
-from core.ingestion.wrangler import GRANULARITY_MAP, AGGREGATION_MAP
+from core.ingestion.wrangler import GRANULARITY_MAP, AGGREGATION_MAP, suggest_control_units
 
 
 def render_uploader(key_prefix: str = "") -> pd.DataFrame | None:
@@ -194,3 +194,122 @@ def render_did_column_mapping(df: pd.DataFrame, key_prefix: str = "") -> dict | 
         "aggregation": aggregation,
         "intervention_date": pd.Timestamp(intervention_date),
     }
+
+
+def render_control_suggestion(df: pd.DataFrame, key_prefix: str = "") -> pd.DataFrame:
+    """
+    Optional pre-step for panel data with many candidate units and no group
+    column yet: pick the treated unit(s), rank the rest by pre-period trend
+    similarity (diff_diff.rank_control_units()), and let the analyst confirm
+    which to use as control. Adds a 'did_group' column to a filtered copy of
+    df for the analyst to select in render_did_column_mapping() below.
+
+    Returns df unchanged unless the analyst completes and applies this step.
+    """
+    ranked_key = f"{key_prefix}suggest_ranked"
+    ranked_signature_key = f"{key_prefix}suggest_ranked_signature"
+    applied_key = f"{key_prefix}suggested_df"
+    applied_signature_key = f"{key_prefix}suggested_df_signature"
+
+    df_signature = pd.util.hash_pandas_object(df, index=True).sum()
+
+    with st.expander("Don't have a control group yet? Suggest one"):
+        st.caption(
+            "Pick the treated unit(s) — candidate control units are ranked by how closely "
+            "their pre-period trend matches the treated unit(s)."
+        )
+
+        columns = list(df.columns)
+        date_col = st.selectbox("Date column", options=columns, key=f"{key_prefix}suggest_date_col")
+        remaining = [c for c in columns if c != date_col]
+        if not remaining:
+            return df
+
+        unit_col = st.selectbox("Unit column", options=remaining, key=f"{key_prefix}suggest_unit_col")
+        remaining_after_unit = [c for c in remaining if c != unit_col]
+        if not remaining_after_unit:
+            return df
+
+        outcome_col = st.selectbox(
+            "Outcome column", options=remaining_after_unit, key=f"{key_prefix}suggest_outcome_col"
+        )
+
+        try:
+            parsed_df, _ = parse_dates(df, date_col)
+        except Exception as e:
+            st.error(f"Could not parse the selected date column: {e}")
+            return df
+
+        unit_values = sorted(parsed_df[unit_col].dropna().unique().tolist(), key=str)
+        treated_units = st.multiselect(
+            "Treated unit(s)", options=unit_values, key=f"{key_prefix}suggest_treated_units"
+        )
+
+        min_date = parsed_df.index.min().date()
+        max_date = parsed_df.index.max().date()
+        as_of_date = st.date_input(
+            "Approximate intervention date (for ranking only — confirm the exact date below)",
+            value=min_date + (max_date - min_date) // 2,
+            min_value=min_date,
+            max_value=max_date,
+            key=f"{key_prefix}suggest_intervention_date",
+        )
+
+        if not treated_units:
+            st.info("Select at least one treated unit to rank candidate controls.")
+            return df
+
+        current_ranking_signature = (df_signature, unit_col, outcome_col, tuple(sorted(map(str, treated_units))), as_of_date)
+
+        if st.button("Rank candidate controls", key=f"{key_prefix}suggest_rank_button"):
+            try:
+                st.session_state[ranked_key] = suggest_control_units(
+                    parsed_df,
+                    unit_col=unit_col,
+                    outcome_col=outcome_col,
+                    treated_units=treated_units,
+                    intervention_date=pd.Timestamp(as_of_date),
+                )
+                st.session_state[ranked_signature_key] = current_ranking_signature
+            except Exception as e:
+                st.error(f"Could not rank control units: {e}")
+                return df
+
+        ranked = st.session_state.get(ranked_key)
+        if ranked is None:
+            return df
+
+        if st.session_state.get(ranked_signature_key) != current_ranking_signature:
+            st.info(
+                "Inputs changed since this ranking was computed — click 'Rank candidate "
+                "controls' again to refresh it."
+            )
+            return df
+
+        st.dataframe(ranked, width="stretch")
+
+        selected_controls = st.multiselect(
+            "Confirm control units to use",
+            options=ranked["unit"].tolist(),
+            default=ranked["unit"].tolist(),
+            key=f"{key_prefix}suggest_selected_controls",
+        )
+
+        if st.button("Use as my group column", key=f"{key_prefix}suggest_apply_button", disabled=not selected_controls):
+            selected_units = set(treated_units) | set(selected_controls)
+            augmented = df[df[unit_col].isin(selected_units)].copy()
+            augmented["did_group"] = augmented[unit_col].apply(
+                lambda u: "Treated" if u in treated_units else "Control"
+            )
+            st.session_state[applied_key] = augmented
+            st.session_state[applied_signature_key] = df_signature
+            st.success(
+                f"Group column added: {len(treated_units)} treated unit(s), "
+                f"{len(selected_controls)} control unit(s). Select 'did_group' as the group "
+                "column below, and consider setting the unit column too for cluster-robust "
+                "standard errors."
+            )
+
+    if st.session_state.get(applied_signature_key) == df_signature:
+        return st.session_state.get(applied_key, df)
+    return df

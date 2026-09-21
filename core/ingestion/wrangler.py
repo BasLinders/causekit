@@ -1,4 +1,5 @@
 import pandas as pd
+from diff_diff import rank_control_units
 
 GRANULARITY_MAP = {
     "Daily": "D",
@@ -93,3 +94,32 @@ def shape_for_did(
     panel["post"] = (panel["time"] >= intervention_date).astype(int)
 
     return panel[["unit", "time", "group", "outcome", "post"]].sort_values(["unit", "time"]).reset_index(drop=True)
+
+
+def suggest_control_units(
+    df: pd.DataFrame,
+    unit_col: str,
+    outcome_col: str,
+    treated_units: list,
+    intervention_date: pd.Timestamp,
+    n_top: int | None = None,
+) -> pd.DataFrame:
+    """
+    Rank candidate control units by pre-treatment outcome-trend similarity to
+    the given treated unit(s), for when the analyst hasn't already settled on
+    a control group. df must be date-indexed (as produced by loader.parse_dates).
+    Thin wrapper around diff_diff.rank_control_units() — pre_periods are the
+    index entries before intervention_date.
+    """
+    working = df[[unit_col, outcome_col]].rename(columns={outcome_col: "outcome"}).reset_index(names="time")
+    pre_periods = working.loc[working["time"] < intervention_date, "time"].unique().tolist()
+
+    return rank_control_units(
+        working,
+        unit_column=unit_col,
+        time_column="time",
+        outcome_column="outcome",
+        treated_units=treated_units,
+        pre_periods=pre_periods,
+        n_top=n_top,
+    )

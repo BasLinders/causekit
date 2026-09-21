@@ -97,3 +97,42 @@ avoid for a product dependency) and no commits since 2026-04.
 - [x] 8 - `app.py`
 
   Flip "Difference-in-Differences (ROADMAPPED)" to a live entry once shipped.
+
+---
+
+## Post-v1 addition: control-group suggestion
+
+`wrangler.suggest_control_units()` wraps `diff_diff.rank_control_units()`: given
+raw panel data with many candidate units and a chosen treated unit (or units),
+ranks the rest by pre-period outcome-trend similarity so the analyst doesn't
+have to eyeball a control group. Wired into the DiD page as an optional
+pre-mapping step (`ingestion_ui.render_control_suggestion()`) — ranks
+candidates, lets the analyst confirm which to keep, and writes a `did_group`
+column the analyst then selects in the normal column-mapping step. Doesn't
+require an intervention date to be finalized first — it asks for its own
+approximate cutoff for ranking purposes only.
+
+---
+
+## Post-v1 addition: BigQuery data source
+
+Both pages now offer BigQuery (GA4 events_* export) as an alternative to CSV
+upload -- core/ingestion/bq_client.py (OAuth + query execution, no `foe`
+dependency; modeled on hexkit's utility/bq_client.py, the proven pattern --
+foe.data.DataEngine exists but isn't what hexkit actually uses in production)
+and core/ingestion/bq_sql_builder.py (build_timeseries() for CI and
+flat-column DiD segments; build_grouped_timeseries(), new, for DiD segments
+defined by an event_params value -- e.g. a feature-flag/rollout split --
+which no existing builder in foe or hexkit covers). UI in
+components/bq_ui.py. Both return a plain DataFrame that feeds the exact same
+downstream pipeline a CSV upload does -- no changes needed to
+shape_for_did()/validate_did()/column mapping.
+
+Not verified by an executed test in this environment: the live OAuth
+round-trip and actual BigQuery query execution -- both need real Google
+credentials, and the sandboxed test run was additionally blocked by the
+safety classifier (flagged as credential-handling code) before that point
+would have been reached anyway. Verified instead: the SQL builders' output
+(including a caught double-prefix bug), the state base64 encode/decode
+round-trip with synthetic values, and that every file compiles. Smoke-test
+the real sign-in flow before relying on this in production.
