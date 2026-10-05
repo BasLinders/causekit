@@ -52,6 +52,7 @@ try:
     from google_auth_oauthlib.flow import Flow
     from google.cloud import bigquery
     from google.cloud import resourcemanager_v3
+    import db_dtypes  # noqa: F401 — needed by QueryJob.to_dataframe()
     import pandas as pd
 
     DEPS_AVAILABLE = True

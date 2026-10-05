@@ -40,7 +40,7 @@ _METRIC_LABELS = {
 def _missing_deps_error() -> None:
     st.error(
         "BigQuery support requires the `google-cloud-bigquery`, `google-auth-oauthlib`, "
-        "and `google-cloud-resourcemanager` packages — add them to `requirements.txt` "
+        "`google-cloud-resourcemanager` and `db-dtypes` packages — add them to `requirements.txt` "
         "and reinstall."
     )
 

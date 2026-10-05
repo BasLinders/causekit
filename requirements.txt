@@ -11,3 +11,4 @@ diff-diff>=3.12.0,<4
 google-cloud-bigquery
 google-cloud-resource-manager
 google-auth-oauthlib
+db-dtypes
