@@ -139,7 +139,10 @@ Causal Impact pulls a plain daily time series (date + metric columns). Differenc
 Differences pulls the same, split into a `segment` column either by a built-in GA4 column
 (e.g. `geo.country`, `device.category`) or by an `event_params` value (for a feature-flag/
 rollout split that isn't a built-in dimension) — select `segment` as the group column in
-the normal column-mapping step afterward.
+the normal column-mapping step afterward. Either way, each user is assigned the first value
+they're seen with in the date range, so no user counts in more than one segment. For a
+built-in column, **Scan for columns** profiles the day before yesterday's table and lists
+the columns worth splitting by; a custom column can still be entered instead.
 
 ---
 

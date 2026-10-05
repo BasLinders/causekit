@@ -7,7 +7,8 @@ causekit's ingestion pipeline needs:
   * build_timeseries()          — date [+ flat segment] + metrics, for
                                    Causal Impact (no segment) and geo/device-
                                    split DiD (segment_col = a flat GA4 struct
-                                   column, e.g. 'geo.country', 'device.category').
+                                   column, e.g. 'geo.country', 'device.category',
+                                   assigned per user by first-seen value).
   * build_grouped_timeseries()  — date + group + metrics, where group comes
                                    from classifying users by an event_params
                                    value (e.g. a feature-flag/rollout param) —
@@ -105,29 +106,56 @@ def build_timeseries(
     """Daily date [+ segment] + metrics. segment_col, if given, must be a flat
     GA4 struct column (e.g. 'geo.country', 'device.category') — for an
     event-params-based split (a feature-flag/rollout param), use
-    build_grouped_timeseries() instead."""
+    build_grouped_timeseries() instead.
+
+    Each user is assigned the first non-null segment_col value they're seen
+    with in the date range, so a user who switches value mid-range (e.g.
+    mobile then desktop) counts in one segment only rather than in both."""
     table = _table_ref(project, dataset)
     suffix = _suffix_filter(start_date, end_date)
-
-    segment_select, group_extra, order_extra = "", "", ""
-    if segment_col:
-        segment_expr = validate_identifier(segment_col, field_name="segment_col")
-        segment_select = f"  main.{segment_expr} AS segment,\n"
-        group_extra, order_extra = ", segment", ", segment"
-
     select_block = ",\n".join(_metric_columns(metrics, conversion_event, custom_event_name))
 
-    return f"""-- Time-series export (daily)
+    header = f"""-- Time-series export (daily)
 DECLARE start_date STRING DEFAULT '{_esc(start_date)}';
 DECLARE end_date   STRING DEFAULT '{_esc(end_date)}';
+"""
+
+    if not segment_col:
+        return f"""{header}
+SELECT
+  PARSE_DATE('%Y%m%d', main.event_date) AS date,
+{select_block}
+FROM {table} AS main
+WHERE main.{suffix}
+GROUP BY date
+ORDER BY date;
+"""
+
+    segment_expr = validate_identifier(segment_col, field_name="segment_col")
+    return f"""{header}
+WITH user_segment AS (
+  SELECT user_pseudo_id, segment
+  FROM (
+    SELECT
+      user_pseudo_id,
+      CAST({segment_expr} AS STRING) AS segment,
+      ROW_NUMBER() OVER (PARTITION BY user_pseudo_id ORDER BY event_timestamp ASC) AS rn
+    FROM {table}
+    WHERE {suffix}
+      AND {segment_expr} IS NOT NULL
+  )
+  WHERE rn = 1
+)
 
 SELECT
   PARSE_DATE('%Y%m%d', main.event_date) AS date,
-{segment_select}{select_block}
+  user_segment.segment AS segment,
+{select_block}
 FROM {table} AS main
+INNER JOIN user_segment ON main.user_pseudo_id = user_segment.user_pseudo_id
 WHERE main.{suffix}
-GROUP BY date{group_extra}
-ORDER BY date{order_extra};
+GROUP BY date, segment
+ORDER BY date, segment;
 """
 
 
@@ -229,4 +257,41 @@ WHERE {suffix}
 GROUP BY value
 ORDER BY occurrences DESC
 LIMIT 50;
+"""
+
+
+def build_column_paths_query(project: str, dataset: str, table_suffix: str) -> str:
+    """Every field path (top-level and nested struct) in one daily events_
+    table, with its data type — feeds segment-column auto-detection."""
+    if not re.fullmatch(r"\d{8}", table_suffix):
+        raise ValueError(f"table_suffix must be YYYYMMDD — got {table_suffix!r}.")
+    return f"""-- Auto-detect: column paths of events_{table_suffix}
+SELECT field_path, data_type
+FROM `{project}.{dataset}.INFORMATION_SCHEMA.COLUMN_FIELD_PATHS`
+WHERE table_name = 'events_{table_suffix}';
+"""
+
+
+def build_column_profile_query(project: str, dataset: str, table_suffix: str, columns: list[str]) -> str:
+    """One row profiling each candidate segment column in a single daily
+    events_ table: distinct values (d_i), non-null rows (n_i) and the top 5
+    values (t_i), plus total rows — a single SELECT so each column is
+    scanned (and billed) once."""
+    if not re.fullmatch(r"\d{8}", table_suffix):
+        raise ValueError(f"table_suffix must be YYYYMMDD — got {table_suffix!r}.")
+    if not columns:
+        raise ValueError("columns must not be empty.")
+    exprs = ["  COUNT(*) AS total"]
+    for i, col in enumerate(columns):
+        c = validate_identifier(col, field_name="column")
+        exprs.append(
+            f"  COUNT(DISTINCT CAST({c} AS STRING)) AS d_{i},\n"
+            f"  COUNTIF({c} IS NOT NULL) AS n_{i},\n"
+            f"  APPROX_TOP_COUNT(CAST({c} AS STRING), 5) AS t_{i}"
+        )
+    select_block = ",\n".join(exprs)
+    return f"""-- Auto-detect: profile candidate segment columns in events_{table_suffix}
+SELECT
+{select_block}
+FROM `{project}.{dataset}.events_{table_suffix}`;
 """

@@ -340,3 +340,65 @@ def autodetect_param_values(project: str, dataset: str, start_date: str, end_dat
     )
     df = run_query(project, sql)
     return df["value"].tolist() if not df.empty else []
+
+
+# ---------------------------------------------------------------------------
+# Auto-detect — candidate flat segment columns
+# ---------------------------------------------------------------------------
+# Profiles a single day — the day before yesterday, the most recent daily
+# table GA4 has reliably finished exporting — since which columns are useful
+# to split by doesn't change from day to day.
+
+_SEGMENT_LEAF_TYPES = {"STRING", "INT64", "BOOL"}
+_SEGMENT_EXCLUDED = {"event_date", "event_name"}
+_SEGMENT_MAX_DISTINCT = 250
+
+
+def autodetect_segment_columns(project: str, dataset: str) -> list[dict]:
+    """[{column, n_distinct, coverage, top_values}] for flat (non-repeated)
+    GA4 columns with between 2 and _SEGMENT_MAX_DISTINCT distinct values on
+    the day before yesterday — most-populated first. Raises if that day's
+    table can't be read."""
+    from datetime import date, timedelta
+    from core.ingestion.bq_sql_builder import build_column_paths_query, build_column_profile_query
+
+    suffix = (date.today() - timedelta(days=2)).strftime("%Y%m%d")
+
+    paths = run_query(project, build_column_paths_query(project, dataset, suffix))
+    if paths.empty:
+        raise RuntimeError(f"Table events_{suffix} not found in {project}.{dataset}.")
+
+    # Fields under a REPEATED column (event_params, items, ...) can't be
+    # selected directly, so drop anything nested beneath an ARRAY.
+    array_paths = [p for p, t in zip(paths["field_path"], paths["data_type"]) if t.startswith("ARRAY<")]
+    candidates = [
+        p for p, t in zip(paths["field_path"], paths["data_type"])
+        if t in _SEGMENT_LEAF_TYPES
+        and p not in _SEGMENT_EXCLUDED
+        and not any(p == a or p.startswith(a + ".") for a in array_paths)
+    ]
+    if not candidates:
+        return []
+
+    sql = build_column_profile_query(project, dataset, suffix, candidates)
+    cost = dry_run(project, sql)
+    st.caption(
+        f"Column scan read events_{suffix}: **{cost['display']}** — "
+        "separate from your export query cost."
+    )
+    row = run_query(project, sql).iloc[0]
+    total = int(row["total"]) or 1
+
+    result = []
+    for i, col in enumerate(candidates):
+        n_distinct = int(row[f"d_{i}"])
+        if not 2 <= n_distinct <= _SEGMENT_MAX_DISTINCT:
+            continue
+        top = row[f"t_{i}"]
+        result.append({
+            "column": col,
+            "n_distinct": n_distinct,
+            "coverage": int(row[f"n_{i}"]) / total,
+            "top_values": [t["value"] for t in (top if top is not None else []) if t["value"] is not None],
+        })
+    return sorted(result, key=lambda r: (-r["coverage"], r["column"]))

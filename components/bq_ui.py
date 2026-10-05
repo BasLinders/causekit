@@ -15,6 +15,7 @@ import streamlit as st
 from core.ingestion.bq_client import (
     DEPS_AVAILABLE,
     autodetect_param_values,
+    autodetect_segment_columns,
     dry_run,
     exchange_code_for_credentials,
     get_auth_url,
@@ -224,6 +225,43 @@ def _render_metric_picker(key_prefix: str) -> tuple[list[str], str, str | None]:
     return metrics, conversion_event, custom_event_name
 
 
+def _render_segment_column_picker(key_prefix: str, project: str, dataset: str) -> str | None:
+    """Selectbox of flat GA4 columns detected on the day before yesterday,
+    plus an optional custom column that overrides the selection."""
+    detected_key = f"{key_prefix}_bq_segment_candidates_{project}.{dataset}"
+    if st.button("Scan for columns", key=f"{key_prefix}_bq_segment_scan_btn",
+                 help="Profiles the day before yesterday's events table for columns worth splitting by."):
+        with st.spinner("Scanning the day before yesterday…"):
+            try:
+                st.session_state[detected_key] = autodetect_segment_columns(project, dataset)
+            except Exception as e:
+                st.error(f"Column scan failed: {e}")
+    detected: list[dict] = st.session_state.get(detected_key, [])
+
+    selected = None
+    if detected:
+        by_column = {c["column"]: c for c in detected}
+        selected = st.selectbox(
+            "Column",
+            options=list(by_column),
+            format_func=lambda col: (
+                f"{col} — {by_column[col]['n_distinct']} values, "
+                f"{by_column[col]['coverage']:.0%} filled · e.g. "
+                + ", ".join(by_column[col]["top_values"][:3])
+            ),
+            key=f"{key_prefix}_bq_segment_col_select",
+        )
+    elif detected_key in st.session_state:
+        st.warning("No suitable columns found — enter a custom column below.")
+
+    custom = st.text_input(
+        "Custom column (optional)", placeholder="geo.country",
+        key=f"{key_prefix}_bq_segment_col",
+        help="Overrides the selection above.",
+    ).strip()
+    return custom or selected
+
+
 def _run_and_show_cost(key_prefix: str, project: str, sql: str) -> pd.DataFrame | None:
     with st.expander("View SQL"):
         st.code(sql, language="sql")
@@ -315,11 +353,9 @@ def render_bq_grouped_export(page_path: str) -> pd.DataFrame | None:
     )
 
     if mode == "flat_column":
-        segment_col = st.text_input(
-            "Column", placeholder="geo.country", key=f"{page_path}_bq_segment_col"
-        )
+        segment_col = _render_segment_column_picker(page_path, project, dataset)
         if not segment_col:
-            st.info("Enter a column to split by.")
+            st.info("Scan for columns or enter a custom column to split by.")
             return None
         try:
             sql = build_timeseries(
