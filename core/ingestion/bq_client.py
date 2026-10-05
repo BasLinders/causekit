@@ -31,10 +31,20 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import urllib.parse
 from typing import Optional
 
 import streamlit as st
+
+# Google can return a token with a broader scope than requested if the signed-in
+# account already has a prior consent grant for this OAuth client that included
+# extra scopes (e.g. the same client ID was also used by another app requesting
+# more scopes). That's benign — Google, not this code, decides what's granted —
+# but oauthlib's fetch_token() treats any requested/granted scope mismatch as a
+# hard error by default. This relaxes that check to only reject genuinely wrong
+# grants (an error code, or a missing token), not a merely-broader scope.
+os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 
 try:
     from google.oauth2.credentials import Credentials
